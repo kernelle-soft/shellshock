@@ -4,25 +4,29 @@ Shared scripting framework for [kernelle-soft](https://github.com/kernelle-soft)
 
 ## Usage
 
-Mount as a git submodule at `.shell/` in your project root:
+Mount as a git submodule at `shell/.shock/` in your project:
 
 ```bash
-git submodule add git@github.com:kernelle-soft/shellshock.git .shell
+mkdir -p shell
+git submodule add git@github.com:kernelle-soft/shellshock.git shell/.shock
+cp shell/.shock/shock shell/shock
 ```
 
-Then invoke CLI commands via the `shock` dispatcher:
+The `shock` dispatcher is copied out of the submodule into `shell/` so it's
+visible and directly invocable. A project's `workspace_setup.sh` script
+handles this automatically (along with submodule init and tool installation).
 
 ```bash
-.shell/shock workspace --check
-.shell/shock git-bump --dry-run
-.shell/shock git-commit -a
-.shell/shock git-config
+shell/shock workspace --check
+shell/shock git-bump --dry-run
+shell/shock git-commit -a
+shell/shock git-config
 ```
 
 ## Structure
 
 ```
-shock               # CLI dispatcher
+shock               # CLI dispatcher (copied to shell/ by consumer)
 cli/                # Subcommands (standalone executables)
   workspace         # Declarative tool installer
   git-bump          # Semver tag bumping
@@ -31,6 +35,17 @@ cli/                # Subcommands (standalone executables)
 lib/                # Sourceable libraries (.api.sh, .func.sh)
 actions/            # Composite GitHub Actions
 schema/             # JSON schemas for manifest.json
+```
+
+Consumer project layout:
+
+```
+project/
+  shell/
+    shock                       # dispatcher (copied from .shock/)
+    .shock/                     # submodule
+    workspace_setup.sh          # bootstrap: submodule init + copy shock + install tools
+    chores/                     # project-specific scripts
 ```
 
 ## Environment

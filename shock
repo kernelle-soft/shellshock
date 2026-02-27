@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SHOCK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the .shock/ directory relative to where this dispatcher lives.
+# Expected layout: shell/shock (this file) + shell/.shock/ (submodule)
+SHOCK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.shock" && pwd)"
 
 subcommand="${1:-}"
 if [[ -z "$subcommand" ]]; then

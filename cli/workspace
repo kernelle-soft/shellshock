@@ -2,6 +2,7 @@
 set -euo pipefail
 eval "${SHELLSHOCK_ENVRC:-}"
 
+# Resolve shellshock root (this script lives in .shock/cli/)
 SHOCK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # shellcheck disable=SC1091
