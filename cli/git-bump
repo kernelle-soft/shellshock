@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1091
 set -euo pipefail
 eval "${SHELLSHOCK_ENVRC:-}"
 
 USAGE="$(cat <<EOF
 Intelligently bump the git version based on the latest version tag.
 
-Usage: "bump_git_version.sh [flags...]"
+Usage: "shock git-bump [flags...]"
 
 Flags:
   -h, --help       Show this help text
@@ -32,9 +33,9 @@ Notes:
 EOF
 )"
 
-import \
-  "$PROJ/scripts/shared/versions.api.sh" \
-  "$PROJ/scripts/shared/manifest.api.sh"
+SHOCK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$SHOCK_DIR/lib/versions.api.sh"
+source "$SHOCK_DIR/lib/manifest.api.sh"
 
 REGEX_SEMVER='^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+(\.[0-9]+)?)?$'
 REGEX_SEMVER_GIT_TAG="^v${REGEX_SEMVER#^}"  # ^v[0-9]+...
