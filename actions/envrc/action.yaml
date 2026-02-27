@@ -9,3 +9,5 @@ runs:
         PROJ="$(git rev-parse --show-toplevel)"
         echo "SHELLSHOCK_ENVRC=source $PROJ/.envrc" >> "$GITHUB_ENV"
         echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        cp "$PROJ/shell/.shock/shock" "$PROJ/shell/shock"
+        chmod +x "$PROJ/shell/shock"
