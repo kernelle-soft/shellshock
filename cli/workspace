@@ -9,9 +9,9 @@ source "$SHOCK_DIR/lib/log.api.sh"
 : <<'DOC'
 CLI for declarative tool installation.
 
-Reads tool definitions from manifest.json's shellshock.tools section,
-discovers local .installer.sh/.uninstaller.sh scripts, validates parity,
-resolves dependency ordering, and runs install/uninstall/check operations.
+Reads tool definitions from shock.lock, discovers local
+.installer.sh/.uninstaller.sh scripts, validates parity, resolves
+dependency ordering, and runs install/uninstall/check operations.
 
 Strategies:
   local           Project provides <tool>.installer.sh and <tool>.uninstaller.sh
@@ -19,19 +19,15 @@ Strategies:
   cargo-binstall  cargo binstall -y <args> <crate>@<version>
   go-install      go install <pkg>@v<version>
 
-Manifest format (in manifest.json):
+Lockfile format (shock.lock):
   {
-    "shellshock": {
-      "tools": {
-        "<strategy>": {
-          "<tool-binary-name>": {
-            "version": "<version>",
-            "needs": ["<other-tool>"],   // optional
-            "args": "<extra-args>",      // optional, strategy-specific
-            "crate": "<crate-name>",     // optional, cargo strategies
-            "pkg": "<go-module-path>"    // required for go-install
-          }
-        }
+    "<strategy>": {
+      "<tool-binary-name>": {
+        "version": "<version>",
+        "needs": ["<other-tool>"],   // optional
+        "args": "<extra-args>",      // optional, strategy-specific
+        "crate": "<crate-name>",     // optional, cargo strategies
+        "pkg": "<go-module-path>"    // required for go-install
       }
     }
   }
@@ -41,7 +37,7 @@ Local scripts are discovered by recursively searching TOOLS_SCRIPTS_DIR
 *.uninstaller.sh. The tool name is the filename stem before the extension.
 DOC
 
-__tools_api__manifest="$PROJ/manifest.json"
+__tools_api__lockfile="$PROJ/shock.lock"
 __tools_api__scripts_dir="${TOOLS_SCRIPTS_DIR:-$PROJ/scripts}"
 
 declare -gA __tools_api__STRATEGY=()
@@ -241,19 +237,19 @@ function __tools_api__parse_args() {
   done
 }
 
-# ── Manifest parsing ─────────────────────────────────────────────────
+# ── Lockfile parsing ──────────────────────────────────────────────────
 
 function __tools_api__parse_manifest() {
-  if [[ ! -f "$__tools_api__manifest" ]]; then
-    error "Manifest not found: $__tools_api__manifest"
+  if [[ ! -f "$__tools_api__lockfile" ]]; then
+    error "Lockfile not found: $__tools_api__lockfile"
     return 1
   fi
 
   local tools_json
-  tools_json=$(jq -c '.shellshock.tools // empty' "$__tools_api__manifest")
+  tools_json=$(jq -c '. // empty' "$__tools_api__lockfile")
 
   if [[ -z "$tools_json" ]]; then
-    warn "No shellshock.tools section in manifest"
+    warn "Empty lockfile: $__tools_api__lockfile"
     return 0
   fi
 

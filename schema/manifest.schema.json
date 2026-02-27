@@ -36,9 +36,6 @@
     },
     "naming": {
       "$ref": "manifest.optional.schema.json#/properties/naming"
-    },
-    "shellshock": {
-      "$ref": "shellshock.schema.json"
     }
   },
   "additionalProperties": true

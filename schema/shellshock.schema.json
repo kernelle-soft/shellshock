@@ -1,26 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/kernelle-soft/shellshock/schema/shellshock.schema.json",
-  "title": "Shellshock Configuration",
-  "description": "Shellshock framework configuration embedded in a project's manifest.json.",
+  "title": "shock.lock",
+  "description": "Shellshock tool lockfile. Strategies at the root, each containing tool entries keyed by binary name.",
   "type": "object",
-  "properties": {
-    "tools": {
+  "patternProperties": {
+    "^(local|cargo-install|cargo-binstall|go-install)$": {
       "type": "object",
-      "description": "Tool installation registry, keyed by strategy.",
-      "patternProperties": {
-        "^(local|cargo-install|cargo-binstall|go-install)$": {
-          "type": "object",
-          "description": "Tools installed via this strategy. Keys are binary names.",
-          "additionalProperties": {
-            "$ref": "#/$defs/toolEntry"
-          }
-        }
-      },
-      "additionalProperties": false
+      "description": "Tools installed via this strategy. Keys are binary names.",
+      "additionalProperties": {
+        "$ref": "#/$defs/toolEntry"
+      }
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "$defs": {
     "toolEntry": {
       "type": "object",
