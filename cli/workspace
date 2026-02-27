@@ -38,7 +38,7 @@ Local scripts are discovered by recursively searching TOOLS_SCRIPTS_DIR
 DOC
 
 __tools_api__lockfile="$PROJ/shock.lock"
-__tools_api__scripts_dir="${TOOLS_SCRIPTS_DIR:-$PROJ/scripts}"
+__tools_api__scripts_dir="${TOOLS_SCRIPTS_DIR:-$PROJ/shell/scripts}"
 
 declare -gA __tools_api__STRATEGY=()
 declare -gA __tools_api__VERSION=()
