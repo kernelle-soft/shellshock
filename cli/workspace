@@ -1,0 +1,529 @@
+#!/usr/bin/env bash
+set -euo pipefail
+eval "${CI_ENVRC:-}"
+
+SHOCK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "$SHOCK_DIR/lib/log.api.sh"
+
+: <<'DOC'
+CLI for declarative tool installation.
+
+Reads tool definitions from manifest.json's shellshock.tools section,
+discovers local .installer.sh/.uninstaller.sh scripts, validates parity,
+resolves dependency ordering, and runs install/uninstall/check operations.
+
+Strategies:
+  local           Project provides <tool>.installer.sh and <tool>.uninstaller.sh
+  cargo-install   cargo install <crate> --version <version>
+  cargo-binstall  cargo binstall -y <args> <crate>@<version>
+  go-install      go install <pkg>@v<version>
+
+Manifest format (in manifest.json):
+  {
+    "shellshock": {
+      "tools": {
+        "<strategy>": {
+          "<tool-binary-name>": {
+            "version": "<version>",
+            "needs": ["<other-tool>"],   // optional
+            "args": "<extra-args>",      // optional, strategy-specific
+            "crate": "<crate-name>",     // optional, cargo strategies
+            "pkg": "<go-module-path>"    // required for go-install
+          }
+        }
+      }
+    }
+  }
+
+Local scripts are discovered by recursively searching TOOLS_SCRIPTS_DIR
+(default: $KAITOSHOME/scripts) for files matching *.installer.sh and
+*.uninstaller.sh. The tool name is the filename stem before the extension.
+DOC
+
+__tools_api__manifest="$KAITOSHOME/manifest.json"
+__tools_api__scripts_dir="${TOOLS_SCRIPTS_DIR:-$KAITOSHOME/scripts}"
+
+declare -gA __tools_api__STRATEGY=()
+declare -gA __tools_api__VERSION=()
+declare -gA __tools_api__META=()
+declare -ga __tools_api__ORDER=()
+declare -gA __tools_api__INSTALLER_PATH=()
+declare -gA __tools_api__UNINSTALLER_PATH=()
+
+__tools_api__FLAG_CHECK=false
+__tools_api__FLAG_FORCE=false
+__tools_api__FLAG_UNINSTALL=false
+declare -ga __tools_api__ARG_TOOLS=()
+
+# ── Public API ────────────────────────────────────────────────────────
+
+: <<'DOC'
+  CLI entry point. Parses flags and dispatches to install/uninstall/check.
+  Intended to be called as: tools_main "$@"
+
+  Flags:
+    -c, --check       Check install status without installing
+    -f, --force       Force re-installation (uninstall + install)
+    -u, --uninstall   Uninstall specified tools
+    -h, --help        Show help text
+DOC
+function tools_main() {
+  __tools_api__FLAG_CHECK=false
+  __tools_api__FLAG_FORCE=false
+  __tools_api__FLAG_UNINSTALL=false
+  __tools_api__ARG_TOOLS=()
+
+  __tools_api__parse_args "$@"
+
+  if [[ "$__tools_api__FLAG_UNINSTALL" == true ]] && [[ "$__tools_api__FLAG_CHECK" == true ]]; then
+    error "--uninstall cannot be combined with --check"
+    return 1
+  fi
+
+  if [[ "$__tools_api__FLAG_CHECK" == true ]]; then
+    tools_check "${__tools_api__ARG_TOOLS[@]}"
+  elif [[ "$__tools_api__FLAG_UNINSTALL" == true ]]; then
+    tools_uninstall "${__tools_api__ARG_TOOLS[@]}"
+  else
+    if [[ "$__tools_api__FLAG_FORCE" == true ]]; then
+      tools_uninstall "${__tools_api__ARG_TOOLS[@]}"
+    fi
+    tools_install "${__tools_api__ARG_TOOLS[@]}"
+  fi
+
+  if [[ "$__tools_api__FLAG_CHECK" != true ]]; then
+    log
+    log "Done."
+  fi
+}
+
+: <<'DOC'
+  Initialize the tools registry from manifest.json.
+  Reads shellshock.tools, discovers local scripts, validates parity.
+  Must be called before any other tools_* function.
+DOC
+function tools_init() {
+  __tools_api__parse_manifest
+  __tools_api__discover_local_scripts
+  __tools_api__validate_local
+  __tools_api__resolve_order
+}
+
+: <<'DOC'
+  Install tools. If names are provided, install only those (respecting
+  dependency order). Otherwise install all registered tools.
+
+  Usage:
+    tools_install               # install all
+    tools_install tokei gh      # install specific tools
+DOC
+function tools_install() {
+  local -a targets
+  if (( $# > 0 )); then
+    targets=("$@")
+  else
+    targets=("${__tools_api__ORDER[@]}")
+  fi
+
+  for tool in "${targets[@]}"; do
+    if command -v "$tool" >/dev/null 2>&1 && [[ "$__tools_api__FLAG_FORCE" != true ]]; then
+      log "  $tool: already installed, skipping"
+      continue
+    fi
+
+    local strategy="${__tools_api__STRATEGY[$tool]}"
+    log "  Installing $tool (strategy: $strategy, version: ${__tools_api__VERSION[$tool]})..."
+
+    if ! "__tools_api__run_install_${strategy}" "$tool"; then
+      error "Failed to install $tool"
+      return 1
+    fi
+  done
+}
+
+: <<'DOC'
+  Uninstall tools.
+
+  Usage:
+    tools_uninstall              # uninstall all
+    tools_uninstall tokei gh     # uninstall specific tools
+DOC
+function tools_uninstall() {
+  local -a targets
+  if (( $# > 0 )); then
+    targets=("$@")
+  else
+    targets=("${__tools_api__ORDER[@]}")
+  fi
+
+  for tool in "${targets[@]}"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      log "  $tool: not installed, skipping"
+      continue
+    fi
+
+    local strategy="${__tools_api__STRATEGY[$tool]}"
+    log "  Uninstalling $tool (strategy: $strategy)..."
+
+    if ! "__tools_api__run_uninstall_${strategy}" "$tool"; then
+      error "Failed to uninstall $tool"
+      return 1
+    fi
+  done
+}
+
+: <<'DOC'
+  Print install status for all (or specified) tools.
+
+  Usage:
+    tools_check                  # check all
+    tools_check tokei gh         # check specific tools
+DOC
+function tools_check() {
+  local -a targets
+  if (( $# > 0 )); then
+    targets=("$@")
+  else
+    targets=("${__tools_api__ORDER[@]}")
+  fi
+
+  local col_status=10
+  local col_tool=22
+  local col_version=14
+
+  printf "%-${col_status}s %-${col_tool}s %-${col_version}s %s\n" \
+    "Status" "Tool" "Version" "Strategy" >&2
+  printf '%s\n' "$(printf '%*s' 60 '' | tr ' ' '-')" >&2
+
+  for tool in "${targets[@]}"; do
+    local marker version strategy
+    strategy="${__tools_api__STRATEGY[$tool]}"
+    version="${__tools_api__VERSION[$tool]}"
+
+    if command -v "$tool" >/dev/null 2>&1; then
+      marker="  ✓"
+    else
+      marker="  ✗"
+    fi
+
+    printf "%-${col_status}s %-${col_tool}s %-${col_version}s %s\n" \
+      "$marker" "$tool" "$version" "$strategy" >&2
+  done
+}
+
+: <<'DOC'
+  Parse CLI arguments for tools_main.
+  Populates __tools_api__FLAG_* and __tools_api__ARG_TOOLS globals.
+DOC
+function __tools_api__parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -c|--check)     __tools_api__FLAG_CHECK=true ;;
+      -f|--force)     __tools_api__FLAG_FORCE=true ;;
+      -u|--uninstall) __tools_api__FLAG_UNINSTALL=true ;;
+      -h|--help)      __tools_api__usage; exit 0 ;;
+      -*)
+        error "Unknown option: $1"
+        __tools_api__usage
+        exit 1
+        ;;
+      *)
+        if [[ ! -v "__tools_api__STRATEGY[$1]" ]]; then
+          error "Unknown tool: $1"
+          log "Registered tools: ${!__tools_api__STRATEGY[*]}"
+          exit 1
+        fi
+        __tools_api__ARG_TOOLS+=("$1")
+        ;;
+    esac
+    shift
+  done
+}
+
+# ── Manifest parsing ─────────────────────────────────────────────────
+
+function __tools_api__parse_manifest() {
+  if [[ ! -f "$__tools_api__manifest" ]]; then
+    error "Manifest not found: $__tools_api__manifest"
+    return 1
+  fi
+
+  local tools_json
+  tools_json=$(jq -c '.shellshock.tools // empty' "$__tools_api__manifest")
+
+  if [[ -z "$tools_json" ]]; then
+    warn "No shellshock.tools section in manifest"
+    return 0
+  fi
+
+  local strategies
+  strategies=$(jq -r 'keys[]' <<< "$tools_json")
+
+  local strategy
+  for strategy in $strategies; do
+    local tools
+    tools=$(jq -r ".[\"$strategy\"] | keys[]" <<< "$tools_json")
+
+    local tool
+    for tool in $tools; do
+      local tool_json
+      tool_json=$(jq -c ".[\"$strategy\"][\"$tool\"]" <<< "$tools_json")
+
+      local version
+      version=$(jq -r '.version // empty' <<< "$tool_json")
+
+      __tools_api__STRATEGY[$tool]="$strategy"
+      __tools_api__VERSION[$tool]="$version"
+      __tools_api__META[$tool]="$tool_json"
+    done
+  done
+}
+
+# ── Local script discovery ───────────────────────────────────────────
+
+: <<'DOC'
+  Recursively search TOOLS_SCRIPTS_DIR for .installer.sh and .uninstaller.sh
+  files. Populates __tools_api__INSTALLER_PATH and __tools_api__UNINSTALLER_PATH maps.
+DOC
+function __tools_api__discover_local_scripts() {
+  if [[ ! -d "$__tools_api__scripts_dir" ]]; then
+    return 0
+  fi
+
+  local file tool_name
+  while IFS= read -r -d '' file; do
+    tool_name="$(basename "$file" .installer.sh)"
+    __tools_api__INSTALLER_PATH[$tool_name]="$file"
+  done < <(find "$__tools_api__scripts_dir" -name '*.installer.sh' -print0 2>/dev/null)
+
+  while IFS= read -r -d '' file; do
+    tool_name="$(basename "$file" .uninstaller.sh)"
+    __tools_api__UNINSTALLER_PATH[$tool_name]="$file"
+  done < <(find "$__tools_api__scripts_dir" -name '*.uninstaller.sh' -print0 2>/dev/null)
+}
+
+# ── Validation ───────────────────────────────────────────────────────
+
+: <<'DOC'
+  Validates that every "local" strategy tool has both an .installer.sh
+  and .uninstaller.sh, and that every discovered script pair has a
+  corresponding manifest entry.
+DOC
+function __tools_api__validate_local() {
+  local errors=0
+
+  local tool
+  for tool in "${!__tools_api__STRATEGY[@]}"; do
+    [[ "${__tools_api__STRATEGY[$tool]}" == "local" ]] || continue
+
+    if [[ ! -v "__tools_api__INSTALLER_PATH[$tool]" ]]; then
+      error "local tool '$tool' is missing a .installer.sh in $__tools_api__scripts_dir"
+      ((errors++))
+    fi
+    if [[ ! -v "__tools_api__UNINSTALLER_PATH[$tool]" ]]; then
+      error "local tool '$tool' is missing a .uninstaller.sh in $__tools_api__scripts_dir"
+      ((errors++))
+    fi
+  done
+
+  local -A installer_names=()
+  local -A uninstaller_names=()
+
+  for tool in "${!__tools_api__INSTALLER_PATH[@]}"; do
+    installer_names[$tool]=1
+  done
+  for tool in "${!__tools_api__UNINSTALLER_PATH[@]}"; do
+    uninstaller_names[$tool]=1
+  done
+
+  for tool in "${!installer_names[@]}"; do
+    if [[ ! -v "uninstaller_names[$tool]" ]]; then
+      error "Found ${tool}.installer.sh but no matching ${tool}.uninstaller.sh"
+      ((errors++))
+    fi
+  done
+  for tool in "${!uninstaller_names[@]}"; do
+    if [[ ! -v "installer_names[$tool]" ]]; then
+      error "Found ${tool}.uninstaller.sh but no matching ${tool}.installer.sh"
+      ((errors++))
+    fi
+  done
+
+  if (( errors > 0 )); then
+    return 1
+  fi
+}
+
+# ── Dependency resolution ────────────────────────────────────────────
+
+: <<'DOC'
+  Topological sort on the needs graph.
+  Populates __tools_api__ORDER with tools in dependency-safe install order.
+DOC
+function __tools_api__resolve_order() {
+  local -A visited=()
+  local -A in_stack=()
+  __tools_api__ORDER=()
+
+  local tool
+  for tool in "${!__tools_api__STRATEGY[@]}"; do
+    if [[ ! -v "visited[$tool]" ]]; then
+      __tools_api__topo_visit "$tool" || return 1
+    fi
+  done
+}
+
+function __tools_api__topo_visit() {
+  local tool="$1"
+
+  if [[ -v "in_stack[$tool]" ]]; then
+    error "Circular dependency detected involving '$tool'"
+    return 1
+  fi
+
+  [[ -v "visited[$tool]" ]] && return 0
+
+  in_stack[$tool]=1
+
+  if [[ -v "__tools_api__META[$tool]" ]]; then
+    local needs
+    needs=$(jq -r '.needs[]? // empty' <<< "${__tools_api__META[$tool]}" 2>/dev/null)
+
+    local dep
+    for dep in $needs; do
+      if [[ ! -v "__tools_api__STRATEGY[$dep]" ]]; then
+        error "Tool '$tool' needs '$dep', which is not registered"
+        return 1
+      fi
+      __tools_api__topo_visit "$dep" || return 1
+    done
+  fi
+
+  unset "in_stack[$tool]"
+  visited[$tool]=1
+  __tools_api__ORDER+=("$tool")
+}
+
+# ── Strategy: local ──────────────────────────────────────────────────
+
+function __tools_api__run_install_local() {
+  local tool="$1"
+  local script="${__tools_api__INSTALLER_PATH[$tool]}"
+
+  # shellcheck disable=SC1090
+  source "$script"
+}
+
+function __tools_api__run_uninstall_local() {
+  local tool="$1"
+  local script="${__tools_api__UNINSTALLER_PATH[$tool]}"
+
+  # shellcheck disable=SC1090
+  source "$script"
+}
+
+# ── Strategy: cargo-install ──────────────────────────────────────────
+
+function __tools_api__run_install_cargo-install() {
+  local tool="$1"
+  local meta="${__tools_api__META[$tool]}"
+
+  local version crate args
+  version=$(jq -r '.version' <<< "$meta")
+  crate=$(jq -r '.crate // empty' <<< "$meta")
+  args=$(jq -r '.args // empty' <<< "$meta")
+  : "${crate:=$tool}"
+
+  # shellcheck disable=SC2086
+  cargo install "$crate" --version "$version" $args
+}
+
+function __tools_api__run_uninstall_cargo-install() {
+  local tool="$1"
+  local crate
+  crate=$(jq -r '.crate // empty' <<< "${__tools_api__META[$tool]}")
+  : "${crate:=$tool}"
+
+  cargo uninstall -v "$crate"
+}
+
+# ── Strategy: cargo-binstall ─────────────────────────────────────────
+
+function __tools_api__run_install_cargo-binstall() {
+  local tool="$1"
+  local meta="${__tools_api__META[$tool]}"
+
+  local version crate args
+  version=$(jq -r '.version' <<< "$meta")
+  crate=$(jq -r '.crate // empty' <<< "$meta")
+  args=$(jq -r '.args // empty' <<< "$meta")
+  : "${crate:=$tool}"
+
+  # shellcheck disable=SC2086
+  cargo binstall -y $args "${crate}@${version}"
+}
+
+function __tools_api__run_uninstall_cargo-binstall() {
+  local tool="$1"
+  local crate
+  crate=$(jq -r '.crate // empty' <<< "${__tools_api__META[$tool]}")
+  : "${crate:=$tool}"
+
+  cargo uninstall -v "$crate"
+}
+
+# ── Strategy: go-install ─────────────────────────────────────────────
+
+function __tools_api__run_install_go-install() {
+  local tool="$1"
+  local meta="${__tools_api__META[$tool]}"
+
+  local version pkg
+  version=$(jq -r '.version' <<< "$meta")
+  pkg=$(jq -r '.pkg // empty' <<< "$meta")
+
+  if [[ -z "$pkg" ]]; then
+    error "go-install tool '$tool' requires a 'pkg' field in manifest"
+    return 1
+  fi
+
+  go install "${pkg}@v${version}"
+}
+
+function __tools_api__run_uninstall_go-install() {
+  local tool="$1"
+  local bin_path
+  bin_path="$(command -v "$tool" 2>/dev/null || true)"
+
+  if [[ -n "$bin_path" ]]; then
+    rm -f "$bin_path"
+  fi
+}
+
+# ── Help ─────────────────────────────────────────────────────────────
+
+function __tools_api__usage() {
+  cat >&2 <<EOF
+Tool installer powered by shellshock.
+
+Usage: shock workspace [flags...] [tools...]
+
+Arguments:
+  tools...          Install only the specified tools.
+                    If omitted, all registered tools are installed.
+
+Flags:
+  -c, --check       Check install status without installing
+  -f, --force       Force re-installation (uninstall first)
+  -u, --uninstall   Uninstall specified tools
+  -h, --help        Show this help text
+
+Registered tools:
+  ${!__tools_api__STRATEGY[*]}
+EOF
+}
+
+tools_init
+tools_main "$@"
