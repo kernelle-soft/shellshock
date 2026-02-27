@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kernelle-soft/shellshock/schema/manifest.optional.schema.json",
+  "title": "Optional Manifest Properties",
+  "description": "Standardized optional properties that projects may include in manifest.json.",
+  "type": "object",
+  "properties": {
+    "command-name": {
+      "type": "string",
+      "description": "CLI binary name for projects that ship an executable."
+    },
+    "releases": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of releases published."
+    },
+    "naming": {
+      "type": "object",
+      "description": "Human-readable names for semver tiers, used in changelogs and release notes.",
+      "properties": {
+        "major": {
+          "type": "string",
+          "description": "Name for the current major version era."
+        },
+        "minor": {
+          "type": "string",
+          "description": "Name for the current minor version focus."
+        },
+        "patch": {
+          "type": "string",
+          "description": "Name for the current patch version focus."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

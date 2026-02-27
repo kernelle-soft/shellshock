@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kernelle-soft/shellshock/schema/shellshock.schema.json",
+  "title": "Shellshock Configuration",
+  "description": "Shellshock framework configuration embedded in a project's manifest.json.",
+  "type": "object",
+  "properties": {
+    "tools": {
+      "type": "object",
+      "description": "Tool installation registry, keyed by strategy.",
+      "patternProperties": {
+        "^(local|cargo-install|cargo-binstall|go-install)$": {
+          "type": "object",
+          "description": "Tools installed via this strategy. Keys are binary names.",
+          "additionalProperties": {
+            "$ref": "#/$defs/toolEntry"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "toolEntry": {
+      "type": "object",
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "description": "Version to install."
+        },
+        "needs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tools that must be installed first."
+        },
+        "args": {
+          "type": "string",
+          "description": "Extra arguments passed to the install command."
+        },
+        "crate": {
+          "type": "string",
+          "description": "Crate name when it differs from the binary name (cargo strategies)."
+        },
+        "pkg": {
+          "type": "string",
+          "description": "Full Go module path (required for go-install strategy)."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

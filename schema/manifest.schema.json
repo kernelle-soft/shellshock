@@ -27,6 +27,18 @@
       "type": "string",
       "description": "Latest stable version (semver).",
       "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "command-name": {
+      "$ref": "manifest.optional.schema.json#/properties/command-name"
+    },
+    "releases": {
+      "$ref": "manifest.optional.schema.json#/properties/releases"
+    },
+    "naming": {
+      "$ref": "manifest.optional.schema.json#/properties/naming"
+    },
+    "shellshock": {
+      "$ref": "shellshock.schema.json"
     }
   },
   "additionalProperties": true
