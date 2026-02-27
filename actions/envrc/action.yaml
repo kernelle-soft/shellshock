@@ -1,5 +1,5 @@
 name: Setup Environment
-description: Sources .envrc and exports CI_ENVRC for scripts
+description: Sources .envrc and exports SHELLSHOCK_ENVRC for scripts
 
 runs:
   using: composite
@@ -7,5 +7,5 @@ runs:
     - shell: bash
       run: |
         PROJ="$(git rev-parse --show-toplevel)"
-        echo "CI_ENVRC=source $PROJ/.envrc" >> "$GITHUB_ENV"
+        echo "SHELLSHOCK_ENVRC=source $PROJ/.envrc" >> "$GITHUB_ENV"
         echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
