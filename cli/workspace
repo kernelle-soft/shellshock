@@ -38,12 +38,12 @@ Manifest format (in manifest.json):
   }
 
 Local scripts are discovered by recursively searching TOOLS_SCRIPTS_DIR
-(default: $KAITOSHOME/scripts) for files matching *.installer.sh and
+(default: $PROJ/scripts) for files matching *.installer.sh and
 *.uninstaller.sh. The tool name is the filename stem before the extension.
 DOC
 
-__tools_api__manifest="$KAITOSHOME/manifest.json"
-__tools_api__scripts_dir="${TOOLS_SCRIPTS_DIR:-$KAITOSHOME/scripts}"
+__tools_api__manifest="$PROJ/manifest.json"
+__tools_api__scripts_dir="${TOOLS_SCRIPTS_DIR:-$PROJ/scripts}"
 
 declare -gA __tools_api__STRATEGY=()
 declare -gA __tools_api__VERSION=()

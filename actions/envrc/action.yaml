@@ -6,6 +6,6 @@ runs:
   steps:
     - shell: bash
       run: |
-        KAITOSHOME="$(git rev-parse --show-toplevel)"
-        echo "CI_ENVRC=source $KAITOSHOME/.envrc" >> "$GITHUB_ENV"
+        PROJ="$(git rev-parse --show-toplevel)"
+        echo "CI_ENVRC=source $PROJ/.envrc" >> "$GITHUB_ENV"
         echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
