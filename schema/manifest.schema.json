@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kernelle-soft/shellshock/schema/manifest.schema.json",
+  "title": "Project Manifest",
+  "description": "Standard manifest for kernelle-soft projects consumed by shellshock scripts.",
+  "type": "object",
+  "required": ["name", "org", "repo", "latest", "stable"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human-readable project name."
+    },
+    "org": {
+      "type": "string",
+      "description": "GitHub organization (e.g. kernelle-soft)."
+    },
+    "repo": {
+      "type": "string",
+      "description": "GitHub repository name."
+    },
+    "latest": {
+      "type": "string",
+      "description": "Latest pre-release version (semver).",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-.+)?$"
+    },
+    "stable": {
+      "type": "string",
+      "description": "Latest stable version (semver).",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    }
+  },
+  "additionalProperties": true
+}
