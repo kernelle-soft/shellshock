@@ -37,6 +37,7 @@ cli/                # Subcommands (standalone executables)
   git-bump          # Semver tag bumping
   git-commit        # Automated CI commits
   git-config        # Git user config for CI bots
+  publish-release   # GitHub/Forgejo release creation with prerelease detection
 lib/                # Sourceable libraries (.api.sh, .func.sh)
 actions/            # Composite GitHub Actions
 schema/             # JSON schemas for manifest.json and shock.lock
