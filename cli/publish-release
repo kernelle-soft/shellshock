@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+set -euo pipefail
+eval "${SHELLSHOCK_ENVRC:-}"
+
+USAGE="$(cat <<EOF
+Creates a GitHub release for the latest tag marked in the project manifest.
+
+Usage: shock publish-release [-h,--help] [artifact...]
+
+Arguments:
+  artifact        Optional artifact files to attach to the release.
+
+Flags:
+  -d, --dry-run   Puts together a dry run of a release for review.
+  -h, --help      Show this help text.
+
+EOF
+)"
+
+ARG_ARTIFACTS=()
+FLAG_DRY_RUN=false
+
+SHOCK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+import \
+  "$SHOCK_DIR/lib/manifest.api.sh" \
+  "$SHOCK_DIR/lib/versions.api.sh" \
+  "$SHOCK_DIR/lib/get_date.func.sh"
+
+function main() {
+  parse_args "$@"
+
+  local tag title notes prerelease_flags
+  local -A version
+
+  tag="v$(manifest_get latest)"
+  parse_version "$tag" version
+
+  prerelease_flags=()
+  if [[ -n "${version[pre_type]}" ]]; then
+    prerelease_flags=(--prerelease --latest=false)
+  fi
+
+  title="$(get_title "$tag")"
+  notes="$(get_notes "$tag")"
+
+  if [[ $FLAG_DRY_RUN = true ]]; then
+    print_dry_run "$tag" "$title" "$notes"
+    exit 0
+  fi
+
+  generate_checksums
+  create_release "$tag" "$title" "$notes"
+}
+
+function parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d|--dry-run) FLAG_DRY_RUN=true ;;
+      -h|--help) log "$USAGE" && exit 0 ;;
+      -*) log "Unknown option: $1" && log "$USAGE" && exit 1 ;;
+      *) ARG_ARTIFACTS+=("$1") ;;
+    esac
+    shift
+  done
+}
+
+function print_dry_run() {
+  local tag="$1" title="$2" notes="$3"
+
+  log "Dry-Run for Release $tag"
+  log "  Title: $title"
+
+  if [[ ${#prerelease_flags[@]} -gt 0 ]]; then
+    log "  Type: Prerelease"
+  else
+    log "  Type: Release"
+  fi
+
+  log "Notes:"
+  log "$notes"
+
+  log "Artifacts:"
+  log ${ARG_ARTIFACTS[@]+"${ARG_ARTIFACTS[@]}"}
+}
+
+function generate_checksums() {
+  local _checksum_artifacts=()
+  for _artifact in ${ARG_ARTIFACTS[@]+"${ARG_ARTIFACTS[@]}"}; do
+    [[ "${_artifact##*/}" == "SHA256SUMS" ]] && continue
+    _checksum_artifacts+=("$_artifact")
+  done
+
+  if [[ ${#_checksum_artifacts[@]} -gt 0 ]]; then
+    sha256sum "${_checksum_artifacts[@]}" | sed 's|  .*/|  |' > SHA256SUMS
+    ARG_ARTIFACTS+=("SHA256SUMS")
+  fi
+}
+
+function create_release() {
+  local tag="$1" title="$2" notes="$3"
+
+  gh release create "$tag" \
+    --title "$title" \
+    --notes "$notes" \
+    ${prerelease_flags[@]+"${prerelease_flags[@]}"} \
+    ${ARG_ARTIFACTS[@]+"${ARG_ARTIFACTS[@]}"}
+}
+
+function get_title() {
+  local tag="$1"
+  local major_name minor_name patch_name
+
+  major_name="$(manifest_get major_name)"
+  minor_name="$(manifest_get minor_name)"
+  patch_name="$(manifest_get patch_name)"
+
+  case "$(get_release_type "$tag")" in
+    patch) echo "$tag: $patch_name - $minor_name" ;;
+    minor) echo "$tag: $minor_name" ;;
+    major) echo "$tag: $major_name" ;;
+    *) echo "$tag" ;;
+  esac
+}
+
+function get_notes() {
+  local tag="$1"
+  local org repo formatted_date notes
+
+  org="$(manifest_get org)"
+  repo="$(manifest_get repo)"
+  formatted_date="$(get_formatted_date)"
+
+  notes=$(gh api \
+    "repos/$org/$repo/releases/generate-notes" \
+    -f tag_name="$tag" \
+    --jq ".body")
+
+  echo "Released on $formatted_date"
+  echo ""
+  echo "$notes"
+}
+
+function get_formatted_date() {
+  local -A _date
+  local y mon d suf h min ampm tz
+
+  get_date _date
+
+  y="${_date[year]}"
+  mon="${_date[month]}"
+  d="${_date[day]}"
+  h="${_date[hours_12]}"
+  min="${_date[minutes]}"
+  ampm="${_date[ampm]}"
+  suf="${_date[day_suffix]}"
+  tz="${_date[timezone]}"
+
+  echo "$mon $d$suf, $y $h:$min $ampm $tz"
+}
+
+main "$@"

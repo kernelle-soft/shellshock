@@ -13,25 +13,6 @@
       "type": "integer",
       "minimum": 0,
       "description": "Total number of releases published."
-    },
-    "naming": {
-      "type": "object",
-      "description": "Human-readable names for semver tiers, used in changelogs and release notes.",
-      "properties": {
-        "major": {
-          "type": "string",
-          "description": "Name for the current major version era."
-        },
-        "minor": {
-          "type": "string",
-          "description": "Name for the current minor version focus."
-        },
-        "patch": {
-          "type": "string",
-          "description": "Name for the current patch version focus."
-        }
-      },
-      "additionalProperties": false
     }
   },
   "additionalProperties": true

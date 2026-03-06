@@ -4,7 +4,7 @@
   "title": "Project Manifest",
   "description": "Standard manifest for kernelle-soft projects consumed by shellshock scripts.",
   "type": "object",
-  "required": ["name", "org", "repo", "latest", "stable"],
+  "required": ["name", "org", "repo", "latest", "stable", "naming"],
   "properties": {
     "name": {
       "type": "string",
@@ -35,7 +35,24 @@
       "$ref": "manifest.optional.schema.json#/properties/releases"
     },
     "naming": {
-      "$ref": "manifest.optional.schema.json#/properties/naming"
+      "type": "object",
+      "description": "Human-readable names for semver tiers, used in changelogs and release notes.",
+      "required": ["major", "minor", "patch"],
+      "properties": {
+        "major": {
+          "type": "string",
+          "description": "Name for the current major version era."
+        },
+        "minor": {
+          "type": "string",
+          "description": "Name for the current minor version focus."
+        },
+        "patch": {
+          "type": "string",
+          "description": "Name for the current patch version focus."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": true
